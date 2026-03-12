@@ -15,6 +15,8 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedItem, setExpandedItem] = useState<string | null>(null)
   const [largeFilter, setLargeFilter] = useState<'1m' | '3m' | '6m' | 'all'>('all')
+  // Repayment/Transfer tracking sort state
+  const [repaySortBy, setRepaySortBy] = useState<'time' | 'amount'>('time')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = async () => {
@@ -119,19 +121,34 @@ function App() {
           <div className="bg-white rounded-2xl p-6 shadow-lg border-2 border-dashed border-orange-200" onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
             <div className="text-center">
               <Upload className="w-12 h-12 mx-auto text-orange-500 mb-3" />
-              <p className="text-gray-600 mb-4">拖拽微信账单PDF到此处</p>
-              <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={e => setFiles(Array.from(e.target.files || []))} />
-              <button onClick={() => fileInputRef.current?.click()} className="bg-orange-500 text-white px-6 py-2 rounded-lg">选择文件</button>
+              <p className="text-gray-600 mb-4">拖拽微信账单PDF或WPS到此处</p>
+              {/* 支持 WPS 和 PDF */}
+              <input 
+                ref={fileInputRef} 
+                type="file" 
+                accept=".pdf,.doc,.docx" 
+                multiple 
+                className="hidden" 
+                onChange={e => setFiles(Array.from(e.target.files || []))} 
+              />
+              <button onClick={() => fileInputRef.current?.click()} className="bg-orange-500 text-white px-6 py-2 rounded-lg">
+                选择文件（支持PDF/WPS）
+              </button>
               {files.length > 0 && (
                 <div className="mt-4 p-3 bg-orange-50 rounded-lg">
                   <p className="text-sm text-orange-800">已选择 {files.length} 个文件</p>
+                  <ul className="text-xs text-left mt-2">
+                    {files.map((f, i) => (
+                      <li key={i} className="truncate">• {f.name}</li>
+                    ))}
+                  </ul>
                   <button onClick={handleFileSelect} disabled={parsing} className="mt-2 w-full bg-orange-500 text-white py-2 rounded-lg font-medium">
                     {parsing ? `解析中... ${progress}%` : '开始分析'}
                   </button>
                 </div>
               )}
               {error && <p className="mt-3 text-red-500 text-sm">{error}</p>}
-              <p className="text-gray-400 text-xs mt-4">数据全程本地处理</p>
+              <p className="text-gray-400 text-xs mt-4">支持 PDF 和 WPS 格式 · 数据全程本地处理</p>
             </div>
           </div>
         </main>
@@ -144,7 +161,54 @@ function App() {
   const counterpartSummary = safeGet(result, 'counterpartSummary', [])
   const largeInflows = safeGet(result, 'largeInflows', [])
   const regularTransfers = safeGet(result, 'regularTransfers', []).filter((t: any) => Number(t.totalAmount) >= 100)
-  const repaymentTracking = safeGet(result, 'repaymentTracking', [])
+  
+  // Process repayment tracking - group by day pattern, exclude merchant消费
+  const processRepaymentTracking = () => {
+    const allTxns = safeGet(result, 'transactions', [])
+    // Group by counterpart + amount for daily pattern (3+ consecutive days, same amount)
+    const groups: any = {}
+    
+    // Sort all transactions by date
+    const sortedTxns = sortByDateDesc(allTxns, 'date')
+    
+    sortedTxns.forEach((txn: any) => {
+      // Skip merchant transactions (商户消费)
+      const desc = String(txn.description || '').toLowerCase()
+      const counterpart = String(txn.counterpart || '').toLowerCase()
+      if (desc.includes('商户') || desc.includes('消费') || counterpart.includes('商户') || counterpart.includes('超市') || 
+          desc.includes('商店') || desc.includes('便利店') || desc.includes('餐厅') || desc.includes('外卖')) {
+        return
+      }
+      
+      const key = `${txn.counterpart}-${txn.amount}`
+      if (!groups[key]) {
+        groups[key] = {
+          counterpart: txn.counterpart,
+          amount: txn.amount,
+          transactions: [],
+          pattern: '每天'
+        }
+      }
+      groups[key].transactions.push(txn)
+    })
+    
+    // Filter: need 3+ transactions on different days with same amount
+    const dailyPatterns = Object.values(groups).filter((g: any) => {
+      const uniqueDates = new Set(g.transactions.map((t: any) => formatDate(t.date)))
+      return uniqueDates.size >= 3
+    })
+    
+    return dailyPatterns.map((g: any) => ({
+      counterpart: g.counterpart,
+      totalRepaid: g.amount * g.transactions.length,
+      pattern: g.pattern,
+      repayments: sortByDateDesc(g.transactions, 'date'),
+      incomings: [],
+      periodDays: 1
+    }))
+  }
+  
+  const repaymentTracking = processRepaymentTracking()
 
   // Filter large inflows by time range
   const filteredLargeInflows = filterByTimeRange(largeInflows, largeFilter)
@@ -172,7 +236,7 @@ function App() {
             { id: 'overview', label: '概览', count: 0 },
             { id: 'monthly', label: '月度', count: monthlyData.length },
             { id: 'transfer', label: '规律转账', count: regularTransfers.length },
-            { id: 'repayment', label: '还款追踪', count: repaymentTracking.length },
+            { id: 'repayment', label: '转账追踪', count: repaymentTracking.length },
             { id: 'large', label: '大额入账', count: filteredLargeInflows.length },
             { id: 'counterpart', label: '交易对方', count: counterpartSummary.length }
           ].map(tab => (
@@ -227,7 +291,7 @@ function App() {
           </div>
         )}
 
-        {/* 规律转账识别 - 只显示支出，过滤<100元，显示相似度 */}
+        {/* 规律转账识别 - 显示规律度 */}
         {activeTab === 'transfer' && (
           <div className="space-y-3">
             <div className="bg-white rounded-xl p-4 shadow">
@@ -243,12 +307,10 @@ function App() {
             ) : regularTransfers.map((t: any, i: number) => {
               const isExpanded = expandedItem === `transfer-${i}`
               const isHighRisk = t.riskLevel === 'high' || t.riskLevel === 'medium'
-              // Only show expense transactions, sorted by date desc (newest first)
               const expenseTxs = sortByDateDesc(
                 safeGet(t, 'transactions', []).filter((tr: any) => tr.type === 'expense' || tr.type === '支出'),
                 'date'
               )
-              // Similarity percentage
               const similarity = Math.round((t.confidence || t.similarity || 0) * 100)
               
               return (
@@ -262,7 +324,7 @@ function App() {
                             <span className="font-medium">{t.counterpart || '-'}</span>
                             {isHighRisk && <span className="bg-red-100 text-red-600 text-xs px-1 rounded">高风险</span>}
                           </div>
-                          <p className="text-xs text-gray-500">{t.pattern} · {expenseTxs.length}笔支出 · {similarity}%相似度</p>
+                          <p className="text-xs text-gray-500">{t.pattern} · {expenseTxs.length}笔支出 · 规律度：{similarity}%</p>
                         </div>
                       </div>
                       <p className="font-bold text-orange-600">{formatMoney(t.totalAmount)}</p>
@@ -285,68 +347,96 @@ function App() {
           </div>
         )}
 
-        {/* 还款追踪 */}
+        {/* 转账追踪 - 原还款追踪 */}
         {activeTab === 'repayment' && (
           <div className="space-y-3">
             <div className="bg-white rounded-xl p-4 shadow">
               <div className="flex items-center justify-between mb-2">
-                <h2 className="font-bold">还款追踪</h2>
+                <h2 className="font-bold">转账追踪</h2>
                 <span className="text-sm text-gray-500">追踪到{repaymentTracking.length}组</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setRepaySortBy('time')} className={`px-3 py-1 rounded-lg text-xs ${repaySortBy === 'time' ? 'bg-orange-500 text-white' : 'bg-gray-100'}`}>按时间</button>
+                <button onClick={() => setRepaySortBy('amount')} className={`px-3 py-1 rounded-lg text-xs ${repaySortBy === 'amount' ? 'bg-orange-500 text-white' : 'bg-gray-100'}`}>按金额</button>
               </div>
             </div>
 
             {repaymentTracking.length === 0 ? (
-              <div className="bg-white rounded-xl p-6 text-center text-gray-500">未追踪到还款记录</div>
-            ) : repaymentTracking.map((r: any, i: number) => {
-              const isExpanded = expandedItem === `repay-${i}`
-              // Combine and sort all transactions by time desc (newest first)
-              const allTxs = sortByDateDesc([
-                ...safeGet(r, 'repayments', []).map((tr: any) => ({ ...tr, type: '支出' })),
-                ...safeGet(r, 'incomings', []).map((tr: any) => ({ ...tr, type: '收入' }))
-              ], 'date')
-              
-              // Calculate days
-              const days = safeGet(r, 'repayments.length', 0) > 1 && r.repayments && r.repayments[1] && r.repayments[0] 
-                ? Math.round((new Date(r.repayments[1].date).getTime() - new Date(r.repayments[0].date).getTime()) / (1000 * 60 * 60 * 24))
-                : r.periodDays || 0
-              
-              return (
-                <div key={i} className="bg-white rounded-xl shadow overflow-hidden">
-                  <div className="p-3" onClick={() => toggleExpand(`repay-${i}`)}>
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-2">
-                        {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                        <div>
-                          <div className="flex items-center gap-1">
-                            <span className="font-medium">{r.counterpart || '-'}</span>
-                            <span className="bg-blue-100 text-blue-600 text-xs px-1 rounded">规律转账</span>
+              <div className="bg-white rounded-xl p-6 text-center text-gray-500">未追踪到转账记录</div>
+            ) : (
+              // Sort repayment tracking
+              (() => {
+                let sorted = [...repaymentTracking]
+                if (repaySortBy === 'time') {
+                  sorted.sort((a, b) => {
+                    const aDate = a.repayments?.[0]?.date || ''
+                    const bDate = b.repayments?.[0]?.date || ''
+                    return new Date(bDate).getTime() - new Date(aDate).getTime()
+                  })
+                } else {
+                  sorted.sort((a, b) => Number(b.totalRepaid || 0) - Number(a.totalRepaid || 0))
+                }
+                return sorted.map((r: any, i: number) => {
+                  const isExpanded = expandedItem === `repay-${i}`
+                  const allTxs = sortByDateDesc([
+                    ...safeGet(r, 'repayments', []).map((tr: any) => ({ ...tr, type: '支出' })),
+                    ...safeGet(r, 'incomings', []).map((tr: any) => ({ ...tr, type: '收入' }))
+                  ], 'date')
+                  
+                  const days = r.periodDays || 1
+                  
+                  return (
+                    <div key={i} className="bg-white rounded-xl shadow overflow-hidden">
+                      <div className="p-3" onClick={() => toggleExpand(`repay-${i}`)}>
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-2">
+                            {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            <div>
+                              <div className="flex items-center gap-1">
+                                <span className="font-medium">{r.counterpart || '-'}</span>
+                                <span className="bg-blue-100 text-blue-600 text-xs px-1 rounded">规律转账</span>
+                              </div>
+                              <p className="text-xs text-gray-500">{days}天周期 · {safeGet(r, 'repayments.length', 0)}笔</p>
+                            </div>
                           </div>
-                          <p className="text-xs text-gray-500">{days}天周期 · {safeGet(r, 'repayments.length', 0)}笔支出</p>
+                          <p className="font-bold text-blue-600">{formatMoney(r.totalRepaid)}</p>
                         </div>
                       </div>
-                      <p className="font-bold text-blue-600">{formatMoney(r.totalRepaid)}</p>
-                    </div>
-                  </div>
-                  {isExpanded && (
-                    <div className="px-3 pb-3 border-t pt-2">
-                      <p className="text-xs text-gray-500 mb-2">全部收支明细（由近到远）</p>
-                      {allTxs.map((tr: any, j: number) => (
-                        <div key={j} className="flex justify-between text-xs py-1">
-                          <span className="text-gray-500">{formatDateTime(tr.date)}</span>
-                          <span className={tr.type === '收入' ? 'text-black' : 'text-red-600'}>
-                            {tr.type === '收入' ? '+' : '-'}{formatMoney(tr.amount)}
-                          </span>
+                      {isExpanded && (
+                        <div className="px-3 pb-3 border-t pt-2">
+                          <p className="text-xs text-gray-500 mb-2">转账来源（由近到远）</p>
+                          {allTxs.map((tr: any, j: number) => (
+                            <div key={j} className="flex justify-between text-xs py-1">
+                              <span className="text-gray-500">{formatDateTime(tr.date)}</span>
+                              <span className={tr.type === '收入' ? 'text-black' : 'text-red-600'}>
+                                {tr.type === '收入' ? '+' : '-'}{formatMoney(tr.amount)}
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
+                      {!isExpanded && (
+                        <div className="px-3 pb-2">
+                          <p className="text-xs text-gray-500">仅显示前20条 · 点击展开查看全部</p>
+                          {allTxs.slice(0, 20).map((tr: any, j: number) => (
+                            <div key={j} className="flex justify-between text-xs py-1">
+                              <span className="text-gray-500">{formatDateTime(tr.date)}</span>
+                              <span className={tr.type === '收入' ? 'text-black' : 'text-red-600'}>
+                                {tr.type === '收入' ? '+' : '-'}{formatMoney(tr.amount)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              )
-            })}
+                  )
+                })
+              })()
+            )}
           </div>
         )}
 
-        {/* 大额入账监控 */}
+        {/* 大额入账监控 - 只显示支出 */}
         {activeTab === 'large' && (
           <div className="space-y-3">
             <div className="bg-white rounded-xl p-4 shadow">
@@ -373,7 +463,7 @@ function App() {
               <div className="bg-white rounded-xl p-6 text-center text-gray-500">未检测到大额入账</div>
             ) : filteredLargeInflows.map((l: any, i: number) => {
               const isExpanded = expandedItem === `large-${i}`
-              // Get only expense transactions after the inflow, sorted by date desc
+              // Only get expense transactions, sorted by date desc
               const relatedExpenses = sortByDateDesc(
                 safeGet(l, 'relatedOutflows', []).filter((tr: any) => tr.type === 'expense' || tr.type === '支出'),
                 'date'
@@ -394,7 +484,7 @@ function App() {
                   </div>
                   {isExpanded && (
                     <div className="px-3 pb-3 border-t pt-2">
-                      <p className="text-xs text-gray-500 mb-2">入账后3笔支出（由近到远）</p>
+                      <p className="text-xs text-gray-500 mb-2">后续3笔支出（由近到远）</p>
                       {relatedExpenses.length > 0 ? relatedExpenses.map((tr: any, j: number) => (
                         <div key={j} className="flex justify-between text-xs py-1">
                           <span className="text-gray-500">{formatDateTime(tr.date)}</span>
@@ -431,7 +521,6 @@ function App() {
 
             {filteredCP.map((c: any, i: number) => {
               const isExpanded = expandedItem === `cp-${i}`
-              // Get all transactions and sort by time desc (newest first)
               const allTxs = sortByDateDesc(safeGet(c, 'transactions', []), 'date')
               return (
                 <div key={i} className="bg-white rounded-xl shadow overflow-hidden">
