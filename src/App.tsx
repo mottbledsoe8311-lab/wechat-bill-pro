@@ -488,17 +488,38 @@ function App() {
               
               {result.repaymentTracking && result.repaymentTracking.length > 0 ? (
                 <div className="space-y-3">
-                  {result.repaymentTracking.slice(0, 16).map((r: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl border border-blue-100">
-                      <div>
-                        <p className="font-semibold text-gray-800">{r.counterpart}</p>
-                        <p className="text-sm text-gray-500">{r.totalRecords}笔 · {r.pattern}</p>
+                  {result.repaymentTracking.slice(0, 16).map((r: any, i: number) => {
+                    const isExpanded = expandedRepayments.includes(i)
+                    return (
+                      <div key={i}>
+                        <div 
+                          className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl border border-blue-100 cursor-pointer hover:shadow-md"
+                          onClick={() => toggleExpand(setExpandedRepayments, expandedRepayments, i)}
+                        >
+                          <div className="flex items-center gap-3">
+                            {isExpanded ? <ChevronDown className="w-5 h-5 text-blue-500" /> : <ChevronRight className="w-5 h-5 text-blue-500" />}
+                            <div>
+                              <p className="font-semibold text-gray-800">{r.counterpart}</p>
+                              <p className="text-sm text-gray-500">{r.totalRecords}笔 · {r.pattern}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-blue-600">{formatMoney(r.totalAmount)}</p>
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <div className="mt-2 p-4 bg-white rounded-xl border border-blue-100 ml-8">
+                            <div className="space-y-2 text-sm">
+                              <div className="flex justify-between text-gray-600"><span>交易对方</span><span>{r.counterpart}</span></div>
+                              <div className="flex justify-between text-gray-600"><span>还款周期</span><span>{r.pattern}</span></div>
+                              <div className="flex justify-between text-gray-600"><span>交易笔数</span><span>{r.totalRecords}笔</span></div>
+                              <div className="flex justify-between text-gray-600"><span>还款总额</span><span className="font-medium text-blue-600">{formatMoney(r.totalAmount)}</span></div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-blue-600">{formatMoney(r.totalAmount)}</p>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <p className="text-gray-500 text-center py-8">未追踪到还款记录</p>
@@ -520,33 +541,64 @@ function App() {
               
               {result.largeInflows && result.largeInflows.length > 0 ? (
                 <div className="space-y-4">
-                  {result.largeInflows.slice(0, 9).map((l: any, i: number) => (
-                    <div key={i} className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-100">
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <p className="font-semibold text-gray-800 flex items-center gap-2">
-                            {l.counterpart}
-                            <span className="text-xs text-gray-500">{l.date}</span>
-                          </p>
-                          <p className="text-xs text-gray-500">位于所有收入的 Top {l.percentile}%</p>
-                        </div>
-                        <p className="text-xl font-bold text-green-600">+{formatMoney(l.amount)}</p>
-                      </div>
-                      {l.followUpTransactions && l.followUpTransactions.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-green-100">
-                          <p className="text-xs text-gray-500 mb-2">入账后续交易（最多10笔）</p>
-                          <div className="space-y-1">
-                            {l.followUpTransactions.slice(0, 5).map((t: any, j: number) => (
-                              <div key={j} className="flex items-center justify-between text-sm">
-                                <span className="text-gray-600">{t.date} · {t.counterpart}</span>
-                                <span className={t.amount >= 0 ? 'text-green-600' : 'text-red-600'}>
-                                  {t.amount >= 0 ? '+' : ''}{formatMoney(t.amount)}
-                                </span>
+                  {result.largeInflows.slice(0, 9).map((l: any, i: number) => {
+                    const isExpanded = expandedLargeInflows.includes(i)
+                    return (
+                      <div key={i}>
+                        <div 
+                          className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-100 cursor-pointer hover:shadow-md"
+                          onClick={() => toggleExpand(setExpandedLargeInflows, expandedLargeInflows, i)}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-3">
+                              {isExpanded ? <ChevronDown className="w-5 h-5 text-green-500" /> : <ChevronRight className="w-5 h-5 text-green-500" />}
+                              <div>
+                                <p className="font-semibold text-gray-800 flex items-center gap-2">
+                                  {l.counterpart}
+                                  <span className="text-xs text-gray-500">{l.date}</span>
+                                </p>
+                                <p className="text-xs text-gray-500">位于所有收入的 Top {l.percentile}%</p>
                               </div>
-                            ))}
+                            </div>
+                            <p className="text-xl font-bold text-green-600">+{formatMoney(l.amount)}</p>
                           </div>
+                          {l.followUpTransactions && l.followUpTransactions.length > 0 && !isExpanded && (
+                            <div className="mt-3 pt-3 border-t border-green-100">
+                              <p className="text-xs text-gray-500 mb-2">入账后续交易（{l.followUpTransactions.length}笔）</p>
+                            </div>
+                          )}
+                          {isExpanded && (
+                            <div className="mt-3 p-3 bg-white rounded-lg">
+                              <p className="font-medium text-gray-700 mb-2">入账详情：</p>
+                              <div className="space-y-2 text-sm">
+                                <div className="flex justify-between text-gray-600"><span>入账时间</span><span>{l.date}</span></div>
+                                <div className="flex justify-between text-gray-600"><span>入账金额</span><span className="font-medium text-green-600">+{formatMoney(l.amount)}</span></div>
+                                <div className="flex justify-between text-gray-600"><span>金额排名</span><span>Top {l.percentile}%</span></div>
+                                <div className="flex justify-between text-gray-600"><span>后续交易</span><span>{l.followUpTransactions?.length || 0} 笔</span></div>
+                              </div>
+                              {l.followUpTransactions && l.followUpTransactions.length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-gray-100">
+                                  <p className="text-xs text-gray-500 mb-2">入账后续交易</p>
+                                  <div className="space-y-1">
+                                    {l.followUpTransactions.slice(0, 5).map((t: any, j: number) => (
+                                      <div key={j} className="flex items-center justify-between text-sm">
+                                        <span className="text-gray-600">{t.date} · {t.counterpart}</span>
+                                        <span className={t.amount >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                          {t.amount >= 0 ? '+' : ''}{formatMoney(t.amount)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
                     </div>
                   ))}
                 </div>
