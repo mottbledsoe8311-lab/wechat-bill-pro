@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { parsePDF, type ParseResult } from './pdfParser'
-import { analyzeTransactions, type AnalysisResult } from './analyzer'
-import { Upload, FileText, ChevronRight, X, RefreshCw, Shield } from 'lucide-react'
+import { analyzeTransactions } from './analyzer'
+import { Upload, FileText, ChevronRight, X, RefreshCw } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 function App() {
@@ -28,7 +28,7 @@ function App() {
         const parseResult: ParseResult = await parsePDF(files[i], (p) => {
           setProgress(Math.round((i / files.length) * 50 + p * 0.5))
         })
-        allTransactions.push(...parseResult.transactions)
+        allTransactions.push(...(parseResult.transactions || []))
       }
       setProgress(60)
       if (allTransactions.length === 0) throw new Error('未找到任何交易记录')
@@ -48,8 +48,10 @@ function App() {
     setFiles(droppedFiles)
   }
 
-  const formatMoney = (amount: number) => {
-    return new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: 0 }).format(amount || 0)
+  const formatMoney = (amount: any) => {
+    try {
+      return new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: 0 }).format(Number(amount) || 0)
+    } catch { return '¥0' }
   }
 
   const formatDate = (date: any) => {
@@ -64,12 +66,24 @@ function App() {
     setExpandedItem(prev => prev === key ? null : key)
   }
 
+  const safeGet = (obj: any, path: string, def: any = []) => {
+    try {
+      const keys = path.split('.')
+      let v = obj
+      for (const k of keys) {
+        if (v == null) return def
+        v = v[k]
+      }
+      return v || def
+    } catch { return def }
+  }
+
   const getTopCounterparts = () => {
-    if (!result?.counterpartSummary) return []
-    let filtered = [...(result.counterpartSummary || [])]
-    if (searchQuery) filtered = filtered.filter((c: any) => c.name?.toLowerCase().includes(searchQuery.toLowerCase()))
-    if (counterpartFilter === 'expense') filtered.sort((a: any, b: any) => (b.totalOut || 0) - (a.totalOut || 0))
-    else filtered.sort((a: any, b: any) => (b.totalIn || 0) - (a.totalIn || 0))
+    const cps = safeGet(result, 'counterpartSummary', [])
+    let filtered = [...cps]
+    if (searchQuery) filtered = filtered.filter((c: any) => String(c.name || '').toLowerCase().includes(searchQuery.toLowerCase()))
+    if (counterpartFilter === 'expense') filtered.sort((a: any, b: any) => (Number(b.totalOut) || 0) - (Number(a.totalOut) || 0))
+    else filtered.sort((a: any, b: any) => (Number(b.totalIn) || 0) - (Number(a.totalIn) || 0))
     return filtered.slice(0, 30)
   }
 
@@ -108,7 +122,11 @@ function App() {
     )
   }
 
-  const monthlyData = (result.monthlyBreakdown || []).slice(0, 12).reverse()
+  const overview = safeGet(result, 'overview', {})
+  const monthlyData = safeGet(result, 'monthlyBreakdown', []).slice(0, 12).reverse()
+  const regularTransfers = safeGet(result, 'regularTransfers', [])
+  const repaymentTracking = safeGet(result, 'repaymentTracking', [])
+  const largeInflows = safeGet(result, 'largeInflows', [])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -139,10 +157,10 @@ function App() {
             <div className="bg-white rounded-xl p-4 shadow">
               <h2 className="font-bold mb-3">账单概览</h2>
               <div className="grid grid-cols-2 gap-2">
-                <div className="bg-green-50 p-3 rounded-lg"><p className="text-xs text-green-600">总收入</p><p className="text-lg font-bold text-green-700">{formatMoney(result.overview?.totalIncome)}</p></div>
-                <div className="bg-red-50 p-3 rounded-lg"><p className="text-xs text-red-600">总支出</p><p className="text-lg font-bold text-red-700">{formatMoney(result.overview?.totalExpense)}</p></div>
-                <div className="bg-blue-50 p-3 rounded-lg"><p className="text-xs text-blue-600">净流水</p><p className="text-lg font-bold text-blue-700">{formatMoney(result.overview?.netFlow)}</p></div>
-                <div className="bg-purple-50 p-3 rounded-lg"><p className="text-xs text-purple-600">交易笔数</p><p className="text-lg font-bold text-purple-700">{result.overview?.totalTransactions || 0}</p></div>
+                <div className="bg-green-50 p-3 rounded-lg"><p className="text-xs text-green-600">总收入</p><p className="text-lg font-bold text-green-700">{formatMoney(overview.totalIncome)}</p></div>
+                <div className="bg-red-50 p-3 rounded-lg"><p className="text-xs text-red-600">总支出</p><p className="text-lg font-bold text-red-700">{formatMoney(overview.totalExpense)}</p></div>
+                <div className="bg-blue-50 p-3 rounded-lg"><p className="text-xs text-blue-600">净流水</p><p className="text-lg font-bold text-blue-700">{formatMoney(overview.netFlow)}</p></div>
+                <div className="bg-purple-50 p-3 rounded-lg"><p className="text-xs text-purple-600">交易笔数</p><p className="text-lg font-bold text-purple-700">{overview.totalTransactions || 0}</p></div>
               </div>
             </div>
           </div>
@@ -166,13 +184,12 @@ function App() {
             {monthlyData.map((m: any, i: number) => (
               <div key={i} className="bg-white rounded-xl p-3 shadow">
                 <div className="flex justify-between items-center" onClick={() => toggleExpand(`m-${i}`)}>
-                  <span className="font-medium">{m.month}</span>
+                  <span className="font-medium">{m.month || '-'}</span>
                   <div className="text-right text-sm"><p className="text-green-600">+{formatMoney(m.income)}</p><p className="text-red-600">-{formatMoney(m.expense)}</p></div>
                 </div>
                 {expandedItem === `m-${i}` && (
                   <div className="mt-2 pt-2 border-t text-sm text-gray-600">
                     <p>笔数: {m.transactionCount || 0}</p>
-                    <p>净流水: {formatMoney((m.income || 0) - (m.expense || 0))}</p>
                   </div>
                 )}
               </div>
@@ -182,20 +199,20 @@ function App() {
 
         {activeTab === 'transfer' && (
           <div className="space-y-3">
-            {(!result.regularTransfers || result.regularTransfers.length === 0) ? (
+            {regularTransfers.length === 0 ? (
               <div className="bg-white rounded-xl p-6 text-center text-gray-500">未发现规律转账</div>
-            ) : result.regularTransfers.map((t: any, i: number) => (
+            ) : regularTransfers.map((t: any, i: number) => (
               <div key={i} className="bg-white rounded-xl p-3 shadow">
                 <div className="flex justify-between items-start" onClick={() => toggleExpand(`t-${i}`)}>
-                  <div><p className="font-medium">{t.counterpart}</p><p className="text-xs text-gray-500">{t.pattern} · {t.transactions?.length || 0}笔</p></div>
-                  <div className="text-right"><p className="font-bold text-orange-600">{formatMoney(t.totalAmount)}</p><p className="text-xs text-gray-500">{Math.round(t.confidence * 100)}%</p></div>
+                  <div><p className="font-medium">{t.counterpart || '-'}</p><p className="text-xs text-gray-500">{t.pattern || '-'} · {safeGet(t, 'transactions.length', 0)}笔</p></div>
+                  <div className="text-right"><p className="font-bold text-orange-600">{formatMoney(t.totalAmount)}</p><p className="text-xs text-gray-500">{Math.round((t.confidence || 0) * 100)}%</p></div>
                 </div>
-                {expandedItem === `t-${i}` && t.transactions && t.transactions.length > 0 && (
+                {expandedItem === `t-${i}` && (
                   <div className="mt-2 pt-2 border-t text-sm">
-                    <p className="font-medium mb-1">交易明细 ({t.transactions.length}笔):</p>
-                    {t.transactions.slice(0, 10).map((tr: any, j: number) => (
+                    <p className="font-medium">交易明细:</p>
+                    {safeGet(t, 'transactions', []).slice(0, 5).map((tr: any, j: number) => (
                       <div key={j} className="flex justify-between text-xs text-gray-600 py-1">
-                        <span>{tr.date?.slice(0,10)} {tr.counterpart?.slice(0,8)}</span>
+                        <span>{formatDate(tr.date)}</span>
                         <span className={tr.type === 'income' ? 'text-green-600' : 'text-red-600'}>
                           {tr.type === 'income' ? '+' : '-'}{formatMoney(tr.amount)}
                         </span>
@@ -210,38 +227,30 @@ function App() {
 
         {activeTab === 'repayment' && (
           <div className="space-y-3">
-            {(!result.repaymentTracking || result.repaymentTracking.length === 0) ? (
+            {repaymentTracking.length === 0 ? (
               <div className="bg-white rounded-xl p-6 text-center text-gray-500">未追踪到还款记录</div>
-            ) : result.repaymentTracking.map((r: any, i: number) => (
+            ) : repaymentTracking.map((r: any, i: number) => (
               <div key={i} className="bg-white rounded-xl p-3 shadow">
                 <div className="flex justify-between items-start" onClick={() => toggleExpand(`r-${i}`)}>
-                  <div><p className="font-medium">{r.counterpart}</p><p className="text-xs text-gray-500">{r.repayments?.length || 0}笔支出 · {r.incomings?.length || 0}笔收入</p></div>
+                  <div><p className="font-medium">{r.counterpart || '-'}</p><p className="text-xs text-gray-500">{safeGet(r, 'repayments.length', 0)}笔支出 · {safeGet(r, 'incomings.length', 0)}笔收入</p></div>
                   <p className="font-bold text-blue-600">{formatMoney(r.totalRepaid)}</p>
                 </div>
                 {expandedItem === `r-${i}` && (
                   <div className="mt-2 pt-2 border-t text-sm">
-                    {r.repayments && r.repayments.length > 0 && (
-                      <div className="mb-2">
-                        <p className="font-medium">支出记录 ({r.repayments.length}笔):</p>
-                        {r.repayments.slice(0, 5).map((tr: any, j: number) => (
-                          <div key={j} className="flex justify-between text-xs text-gray-600">
-                            <span>{tr.date?.slice(0,10)}</span>
-                            <span className="text-red-600">-{formatMoney(tr.amount)}</span>
-                          </div>
-                        ))}
+                    <p className="font-medium">支出记录:</p>
+                    {safeGet(r, 'repayments', []).slice(0, 5).map((tr: any, j: number) => (
+                      <div key={j} className="flex justify-between text-xs text-gray-600">
+                        <span>{formatDate(tr.date)}</span>
+                        <span className="text-red-600">-{formatMoney(tr.amount)}</span>
                       </div>
-                    )}
-                    {r.incomings && r.incomings.length > 0 && (
-                      <div>
-                        <p className="font-medium">收入记录 ({r.incomings.length}笔):</p>
-                        {r.incomings.slice(0, 5).map((tr: any, j: number) => (
-                          <div key={j} className="flex justify-between text-xs text-gray-600">
-                            <span>{tr.date?.slice(0,10)}</span>
-                            <span className="text-green-600">+{formatMoney(tr.amount)}</span>
-                          </div>
-                        ))}
+                    ))}
+                    <p className="font-medium mt-2">收入记录:</p>
+                    {safeGet(r, 'incomings', []).slice(0, 5).map((tr: any, j: number) => (
+                      <div key={j} className="flex justify-between text-xs text-gray-600">
+                        <span>{formatDate(tr.date)}</span>
+                        <span className="text-green-600">+{formatMoney(tr.amount)}</span>
                       </div>
-                    )}
+                    ))}
                   </div>
                 )}
               </div>
@@ -251,30 +260,25 @@ function App() {
 
         {activeTab === 'large' && (
           <div className="space-y-3">
-            {(!result.largeInflows || result.largeInflows.length === 0) ? (
+            {largeInflows.length === 0 ? (
               <div className="bg-white rounded-xl p-6 text-center text-gray-500">未检测到大额入账</div>
-            ) : result.largeInflows.map((l: any, i: number) => (
+            ) : largeInflows.map((l: any, i: number) => (
               <div key={i} className="bg-white rounded-xl p-3 shadow">
                 <div className="flex justify-between items-start" onClick={() => toggleExpand(`l-${i}`)}>
-                  <div><p className="font-medium">{l.transaction?.counterpart}</p><p className="text-xs text-gray-500">{l.transaction?.date?.slice(0,10)} · Top {l.percentile}%</p></div>
-                  <p className="font-bold text-green-600">+{formatMoney(l.transaction?.amount)}</p>
+                  <div><p className="font-medium">{safeGet(l, 'transaction.counterpart') || '-'}</p><p className="text-xs text-gray-500">{formatDate(safeGet(l, 'transaction.date'))} · Top {l.percentile}%</p></div>
+                  <p className="font-bold text-green-600">+{formatMoney(safeGet(l, 'transaction.amount'))}</p>
                 </div>
                 {expandedItem === `l-${i}` && (
                   <div className="mt-2 pt-2 border-t text-sm">
-                    <p>入账时间: {l.transaction?.date?.slice(0,10)}</p>
-                    <p>金额: {formatMoney(l.transaction?.amount)}</p>
+                    <p>金额: {formatMoney(safeGet(l, 'transaction.amount'))}</p>
                     <p>排名: Top {l.percentile}%</p>
-                    {l.relatedOutflows && l.relatedOutflows.length > 0 && (
-                      <div className="mt-2">
-                        <p className="font-medium">后续支出 ({l.relatedOutflows.length}笔):</p>
-                        {l.relatedOutflows.slice(0, 5).map((tr: any, j: number) => (
-                          <div key={j} className="flex justify-between text-xs text-gray-600">
-                            <span>{tr.date?.slice(0,10)} {tr.counterpart?.slice(0,6)}</span>
-                            <span className="text-red-600">-{formatMoney(tr.amount)}</span>
-                          </div>
-                        ))}
+                    <p className="font-medium mt-2">后续支出:</p>
+                    {safeGet(l, 'relatedOutflows', []).slice(0, 5).map((tr: any, j: number) => (
+                      <div key={j} className="flex justify-between text-xs text-gray-600">
+                        <span>{formatDate(tr.date)}</span>
+                        <span className="text-red-600">-{formatMoney(tr.amount)}</span>
                       </div>
-                    )}
+                    ))}
                   </div>
                 )}
               </div>
@@ -293,16 +297,16 @@ function App() {
             </div>
             {getTopCounterparts().map((c: any, i: number) => (
               <div key={i} className="bg-white rounded-xl p-3 shadow">
-                <div className="flex justify-between items-start" onClick={() => { try { toggleExpand(`c-${i}`) } catch(e) { console.error(e) } }}>
-                  <div><p className="font-medium">{c.name}</p><p className="text-xs text-gray-500">{formatDate(c.firstDate)} ~ {formatDate(c.lastDate)}</p></div>
+                <div className="flex justify-between items-start" onClick={() => { try { toggleExpand(`c-${i}`) } catch {}}}>
+                  <div><p className="font-medium">{c.name || '-'}</p><p className="text-xs text-gray-500">{formatDate(c.firstDate)} ~ {formatDate(c.lastDate)}</p></div>
                   <div className="text-right"><p className="text-sm text-red-600">-{formatMoney(c.totalOut)}</p><p className="text-sm text-green-600">+{formatMoney(c.totalIn)}</p></div>
                 </div>
                 {expandedItem === `c-${i}` && (
                   <div className="mt-2 pt-2 border-t text-sm">
-                    <p>支出总额: {formatMoney(c.totalOut)}</p>
-                    <p>收入总额: {formatMoney(c.totalIn)}</p>
-                    <p>净额: {formatMoney((c.totalIn || 0) - (c.totalOut || 0))}</p>
-                    <p>交易笔数: {c.transactionCount || 0}</p>
+                    <p>支出: {formatMoney(c.totalOut)}</p>
+                    <p>收入: {formatMoney(c.totalIn)}</p>
+                    <p>净额: {formatMoney((Number(c.totalIn) || 0) - (Number(c.totalOut) || 0))}</p>
+                    <p>笔数: {c.transactionCount || 0}</p>
                   </div>
                 )}
               </div>
