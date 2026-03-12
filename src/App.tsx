@@ -6,7 +6,7 @@ import {
   PieChart, Calendar, Users, AlertTriangle, CheckCircle,
   ArrowUpRight, ArrowDownRight, DollarSign, Activity,
   ChevronRight, X, RefreshCw, Shield, Zap, Search,
-  ArrowRightLeft, CreditCard, BarChart3
+  ArrowRightLeft, CreditCard, BarChart3, ChevronDown, ChevronUp
 } from 'lucide-react'
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -24,6 +24,18 @@ function App() {
   const [activeTab, setActiveTab] = useState('overview')
   const [counterpartFilter, setCounterpartFilter] = useState<'all' | 'expense' | 'income' | 'net'>('expense')
   const [searchQuery, setSearchQuery] = useState('')
+  const [expandedTransfers, setExpandedTransfers] = useState<number[]>([])
+  const [expandedRepayments, setExpandedRepayments] = useState<number[]>([])
+  const [expandedLargeInflows, setExpandedLargeInflows] = useState<number[]>([])
+  
+  const toggleExpand = (setter: any, state: number[], index: number) => {
+    if (state.includes(index)) {
+      setter(state.filter((i: number) => i !== index))
+    } else {
+      setter([...state, index])
+    }
+  }
+  
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = async () => {
@@ -416,22 +428,45 @@ function App() {
               
               {result.regularTransfers.length > 0 ? (
                 <div className="space-y-3">
-                  {result.regularTransfers.map((t: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between p-4 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-100">
-                      <div>
-                        <p className="font-semibold text-gray-800 flex items-center gap-2">
-                          {t.counterpart}
-                          {i < 2 && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded">高风险</span>}
-                          {i === 0 && <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded flex items-center gap-1">🚨 重点核实</span>}
-                        </p>
-                        <p className="text-sm text-gray-500">{t.pattern} · {t.count}笔支出 · {Math.round(t.confidence * 100)}%</p>
+                  {result.regularTransfers.map((t: any, i: number) => {
+                    const isExpanded = expandedTransfers.includes(i)
+                    return (
+                      <div key={i}>
+                        <div 
+                          className="flex items-center justify-between p-4 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-100 cursor-pointer hover:shadow-md"
+                          onClick={() => toggleExpand(setExpandedTransfers, expandedTransfers, i)}
+                        >
+                          <div className="flex items-center gap-3">
+                            {isExpanded ? <ChevronDown className="w-5 h-5 text-orange-500" /> : <ChevronRight className="w-5 h-5 text-orange-500" />}
+                            <div>
+                              <p className="font-semibold text-gray-800 flex items-center gap-2">
+                                {t.counterpart}
+                                {i < 2 && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded">高风险</span>}
+                                {i === 0 && <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded flex items-center gap-1">🚨 重点核实</span>}
+                              </p>
+                              <p className="text-sm text-gray-500">{t.pattern} · {t.count}笔支出 · {Math.round(t.confidence * 100)}%置信度</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-orange-600">{formatMoney(t.avgAmount * t.count)}</p>
+                            <p className="text-sm text-gray-500">约 {formatMoney(t.avgAmount)}/笔</p>
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <div className="mt-2 p-4 bg-white rounded-xl border border-yellow-100 ml-8">
+                            <p className="font-medium text-gray-700 mb-2">详细交易记录：</p>
+                            <div className="space-y-2 text-sm">
+                              <div className="flex justify-between text-gray-600"><span>转账周期</span><span>{t.pattern}</span></div>
+                              <div className="flex justify-between text-gray-600"><span>交易笔数</span><span>{t.count}笔</span></div>
+                              <div className="flex justify-between text-gray-600"><span>平均金额</span><span>{formatMoney(t.avgAmount)}</span></div>
+                              <div className="flex justify-between text-gray-600"><span>总金额</span><span className="font-medium">{formatMoney(t.avgAmount * t.count)}</span></div>
+                              <div className="flex justify-between text-gray-600"><span>风险等级</span><span className={i < 2 ? "text-red-600 font-medium" : "text-green-600"}>{i < 2 ? "高风险" : "正常"}</span></div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-orange-600">{formatMoney(t.avgAmount * t.count)}</p>
-                        <p className="text-sm text-gray-500">约 {formatMoney(t.avgAmount)}/笔</p>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <p className="text-gray-500 text-center py-8">未发现规律转账</p>
