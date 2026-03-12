@@ -10,7 +10,7 @@ function App() {
   const [progress, setProgress] = useState(0)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState('counterpart')
+  const [activeTab, setActiveTab] = useState('overview')
   const [counterpartFilter, setCounterpartFilter] = useState<'expense' | 'income' | 'net'>('expense')
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedItem, setExpandedItem] = useState<string | null>(null)
@@ -114,6 +114,8 @@ function App() {
     )
   }
 
+  const overview = safeGet(result, 'overview', {})
+  const monthlyData = safeGet(result, 'monthlyBreakdown', []).slice(0, 12).reverse()
   const counterpartSummary = safeGet(result, 'counterpartSummary', [])
   const largeInflows = safeGet(result, 'largeInflows', [])
   const regularTransfers = safeGet(result, 'regularTransfers', [])
@@ -139,6 +141,8 @@ function App() {
       <div className="bg-white shadow-sm sticky top-12 z-40">
         <div className="max-w-md mx-auto flex gap-1 p-2 overflow-x-auto">
           {[
+            { id: 'overview', label: '概览', count: 0 },
+            { id: 'monthly', label: '月度', count: monthlyData.length },
             { id: 'counterpart', label: '交易对方', count: counterpartSummary.length },
             { id: 'large', label: '大额入账', count: largeInflows.length },
             { id: 'transfer', label: '规律转账', count: regularTransfers.length },
@@ -153,6 +157,48 @@ function App() {
       </div>
 
       <main className="max-w-md mx-auto p-3 space-y-3">
+        {/* 账单概览 */}
+        {activeTab === 'overview' && (
+          <div className="space-y-3">
+            <div className="bg-white rounded-xl p-4 shadow">
+              <h2 className="font-bold mb-3">账单概览</h2>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-green-50 p-3 rounded-lg"><p className="text-xs text-green-600">总收入</p><p className="text-lg font-bold text-green-700">{formatMoney(overview.totalIncome)}</p></div>
+                <div className="bg-red-50 p-3 rounded-lg"><p className="text-xs text-red-600">总支出</p><p className="text-lg font-bold text-red-700">{formatMoney(overview.totalExpense)}</p></div>
+                <div className="bg-blue-50 p-3 rounded-lg"><p className="text-xs text-blue-600">净流水</p><p className="text-lg font-bold text-blue-700">{formatMoney(overview.netFlow)}</p></div>
+                <div className="bg-purple-50 p-3 rounded-lg"><p className="text-xs text-purple-600">交易笔数</p><p className="text-lg font-bold text-purple-700">{overview.totalTransactions || 0}</p></div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 月度趋势 */}
+        {activeTab === 'monthly' && (
+          <div className="space-y-3">
+            <div className="bg-white rounded-xl p-4 shadow">
+              <h2 className="font-bold mb-3">月度趋势</h2>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={monthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" fontSize={10} />
+                  <YAxis fontSize={10} />
+                  <Tooltip formatter={(v: number) => formatMoney(v)} />
+                  <Line type="monotone" dataKey="income" stroke="#10b981" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="expense" stroke="#ef4444" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            {monthlyData.map((m: any, i: number) => (
+              <div key={i} className="bg-white rounded-xl p-3 shadow">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">{m.month || '-'}</span>
+                  <div className="text-right text-sm"><p className="text-green-600">+{formatMoney(m.income)}</p><p className="text-red-600">-{formatMoney(m.expense)}</p></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* 交易对方分析 */}
         {activeTab === 'counterpart' && (
           <div className="space-y-3">
