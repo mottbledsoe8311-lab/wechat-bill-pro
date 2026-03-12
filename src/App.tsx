@@ -307,8 +307,22 @@ function App() {
             ) : regularTransfers.map((t: any, i: number) => {
               const isExpanded = expandedItem === `transfer-${i}`
               const isHighRisk = t.riskLevel === 'high' || t.riskLevel === 'medium'
+              // Filter out merchant transactions
               const expenseTxs = sortByDateDesc(
-                safeGet(t, 'transactions', []).filter((tr: any) => tr.type === 'expense' || tr.type === '支出'),
+                safeGet(t, 'transactions', []).filter((tr: any) => {
+                  if (tr.type === 'expense' || tr.type === '支出') {
+                    const desc = String(tr.description || '').toLowerCase()
+                    const counterpart = String(tr.counterpart || '').toLowerCase()
+                    // Exclude merchant transactions
+                    if (desc.includes('商户') || desc.includes('消费') || counterpart.includes('商户') || 
+                        desc.includes('超市') || desc.includes('商店') || desc.includes('便利店') || 
+                        desc.includes('餐厅') || desc.includes('外卖')) {
+                      return false
+                    }
+                    return true
+                  }
+                  return false
+                }),
                 'date'
               )
               const similarity = Math.round((t.confidence || t.similarity || 0) * 100)
@@ -324,7 +338,8 @@ function App() {
                             <span className="font-medium">{t.counterpart || '-'}</span>
                             {isHighRisk && <span className="bg-red-100 text-red-600 text-xs px-1 rounded">高风险</span>}
                           </div>
-                          <p className="text-xs text-gray-500">{t.pattern} · {expenseTxs.length}笔支出 · 规律度：{similarity}%</p>
+                          <p className="text-xs text-gray-500">{t.pattern} · {expenseTxs.length}笔支出</p>
+                          <p className="text-xs text-orange-500">规律度：{similarity}%</p>
                         </div>
                       </div>
                       <p className="font-bold text-orange-600">{formatMoney(t.totalAmount)}</p>
@@ -356,8 +371,8 @@ function App() {
                 <span className="text-sm text-gray-500">追踪到{repaymentTracking.length}组</span>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setRepaySortBy('time')} className={`px-3 py-1 rounded-lg text-xs ${repaySortBy === 'time' ? 'bg-orange-500 text-white' : 'bg-gray-100'}`}>按时间</button>
-                <button onClick={() => setRepaySortBy('amount')} className={`px-3 py-1 rounded-lg text-xs ${repaySortBy === 'amount' ? 'bg-orange-500 text-white' : 'bg-gray-100'}`}>按金额</button>
+                <button onClick={() => setRepaySortBy('time')} className={`px-3 py-1 rounded-lg text-xs ${repaySortBy === 'time' ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>按时间</button>
+                <button onClick={() => setRepaySortBy('amount')} className={`px-3 py-1 rounded-lg text-xs ${repaySortBy === 'amount' ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>按金额</button>
               </div>
             </div>
 
